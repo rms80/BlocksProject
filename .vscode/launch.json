@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Build Only",
+            "type": "lldb",
+            "request": "launch",
+            "program": "/usr/bin/true",
+            "preLaunchTask": "CMake Build"
+        },
+        {
+            "name": "Build & Debug gradientspace_demo",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/gradientspace_demo",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "CMake Build"
+        }
+    ]
+}

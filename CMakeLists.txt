@@ -15,7 +15,8 @@ set (CMAKE_CXX_STANDARD 20)
 
 
 file(GLOB_RECURSE DEMO_SOURCE_FILES DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/demo_source/*.*")
-set(MODULE_FILES ${DEMO_SOURCE_FILES})
+file(GLOB_RECURSE SRC_FILES DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/*.*")
+set(MODULE_FILES ${DEMO_SOURCE_FILES} ${SRC_FILES})
 
 add_subdirectory( ${CMAKE_CURRENT_SOURCE_DIR}/submodules/GradientspaceCore ${CMAKE_CURRENT_BINARY_DIR}/gscore_bin )
 add_subdirectory( ${CMAKE_CURRENT_SOURCE_DIR}/submodules/GradientspaceIO ${CMAKE_CURRENT_BINARY_DIR}/gsio_bin )
@@ -24,6 +25,8 @@ add_subdirectory( ${CMAKE_CURRENT_SOURCE_DIR}/submodules/GradientspaceGrid ${CMA
 add_executable(gradientspace_demo ${MODULE_FILES})
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT gradientspace_demo)
+
+target_include_directories(gradientspace_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(gradientspace_demo gradientspace_core)
 target_link_libraries(gradientspace_demo gradientspace_io)
@@ -46,6 +49,7 @@ endif ()
 # create a symlink to the executable in the source directory
 add_custom_command(
   TARGET gradientspace_demo POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_SOURCE_DIR}/gradientspace_demo
   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:gradientspace_demo> ${CMAKE_CURRENT_SOURCE_DIR}/gradientspace_demo
 )
 

@@ -20,11 +20,17 @@
 #include "ModelGrid/ModelGridEditor.h"
 #include "ModelGrid/ModelGridEditMachine.h"
 #include "ModelGrid/ModelGridSerializer.h"
+#include "ModelGrid/ModelGridMeshCache.h"
 #endif
+
+#include "src/DenseMeshAPI.h"
+#include "src/DummyParallelAPI.h"
 
 int main()
 {
     std::cout << "Hello World!\n";
+
+    GS::Parallel::RegisterAPI(GSMakeUniquePtr<GS::DummyParallelAPI>());
 
 	auto WriteDenseMeshOBJ = [](GS::DenseMesh& Mesh, std::string filename)
 	{
@@ -106,6 +112,25 @@ int main()
     Serializer.BeginRead();
     bool bRestoreOK = GS::ModelGridSerializer::Restore(RestoredGrid, Serializer);
     std::cout << "Grid read ok: " << bStoreOK << std::endl;
+
+    GS::AxisBox3i OccupiedBounds = Grid.GetOccupiedRegionBounds(1);
+    GS::AxisBox3d LocalBounds = Grid.GetCellLocalBounds(OccupiedBounds.Min);
+    LocalBounds.Contain(Grid.GetCellLocalBounds(OccupiedBounds.Max));
+
+    GS::DenseMeshBuilderFactory Factory;
+    GS::ModelGridMeshCache MeshGen;
+    MeshGen.Initialize(GS::Vector3d::One(), &Factory);
+    std::cout << "[UpdateInBounds]" << std::endl;
+    MeshGen.UpdateInBounds(Grid, LocalBounds, [](GS::Vector2i) {});
+    std::cout << "[ExtractFullMesh]" << std::endl;   
+    GS::DenseMeshCollector Collector;
+    MeshGen.ExtractFullMesh(Collector);
+    std::cout << "[ToDenseMesh]" << std::endl;       
+    GS::DenseMesh CollectedMesh = Collector.AccumulatedMesh.ToDenseMesh();
+    std::cout << "[WriteDenseMeshOBJ]" << std::endl;         
+    WriteDenseMeshOBJ(CollectedMesh, writeFilesPath+"modelgrid_mesh.obj");
+
+
 #endif
 }
 
