@@ -13,6 +13,9 @@ output/
 # symlink to built executable
 gradientspace_demo
 
+# macOS Finder metadata
+.DS_Store
+
 
 # User-specific files
 *.rsuser
