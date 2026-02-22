@@ -7,6 +7,12 @@
 [Bb]uild/
 ![Bb]uild/vs2022
 
+# demo output directory
+output/
+
+# symlink to built executable
+gradientspace_demo
+
 
 # User-specific files
 *.rsuser

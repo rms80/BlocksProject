@@ -2,6 +2,7 @@
 //
 
 #include <iostream>
+#include <filesystem>
 
 #include "Core/TextIO.h"
 #include "Core/BinaryIO.h"
@@ -36,8 +37,11 @@ int main()
 
     GS::DenseMesh TmpMesh;
 
-    std::string testFilesPath = "c:\\scratch\\";
-    std::string writeFilesPath = "c:\\scratch\\";
+    std::filesystem::path outputDir = std::filesystem::current_path() / "output";
+    std::filesystem::create_directories(outputDir);
+
+    std::string testFilesPath = "test_files" + std::string(1, std::filesystem::path::preferred_separator);
+    std::string writeFilesPath = outputDir.string() + std::string(1, std::filesystem::path::preferred_separator);
 
     // read OBJ file into a DenseMesh
     GS::OBJFormatData OBJData;
