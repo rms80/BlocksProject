@@ -43,3 +43,9 @@ if (CMAKE_IMPORT_LIBRARY_SUFFIX)
   )
 endif ()
 
+# create a symlink to the executable in the source directory
+add_custom_command(
+  TARGET gradientspace_demo POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:gradientspace_demo> ${CMAKE_CURRENT_SOURCE_DIR}/gradientspace_demo
+)
+
