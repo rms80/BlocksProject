@@ -1,0 +1,11 @@
+slab:
+Slab unique codes (no translate): 48479
+Slab after TranslateYZ: 14,711,397 unique codes
+
+ramp: 
+Unique ramp mesh codes: 95690
+After TranslateYZ loop: 52,490,679 unique codes
+
+corner:
+Corner unique codes (no translate): 37344
+Corner after TranslateYZ: 32,396,298 unique codes

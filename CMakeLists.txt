@@ -33,6 +33,46 @@ target_link_libraries(gradientspace_demo gradientspace_io)
 target_link_libraries(gradientspace_demo gradientspace_grid)
 
 
+# enumerate_cells sample
+add_executable(enumerate_cells samples/enumerate_cells.cpp ${SRC_FILES})
+target_include_directories(enumerate_cells PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(enumerate_cells gradientspace_core)
+target_link_libraries(enumerate_cells gradientspace_io)
+target_link_libraries(enumerate_cells gradientspace_grid)
+
+
+# visualize_cells sample
+add_executable(visualize_cells samples/visualize_cells.cpp ${SRC_FILES})
+target_include_directories(visualize_cells PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(visualize_cells gradientspace_core)
+target_link_libraries(visualize_cells gradientspace_io)
+target_link_libraries(visualize_cells gradientspace_grid)
+
+
+# winding_test sample
+add_executable(winding_test samples/winding_test.cpp ${SRC_FILES})
+target_include_directories(winding_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(winding_test gradientspace_core)
+target_link_libraries(winding_test gradientspace_io)
+target_link_libraries(winding_test gradientspace_grid)
+
+
+# cell_match_test sample
+add_executable(cell_match_test samples/cell_match_test.cpp ${SRC_FILES})
+target_include_directories(cell_match_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(cell_match_test gradientspace_core)
+target_link_libraries(cell_match_test gradientspace_io)
+target_link_libraries(cell_match_test gradientspace_grid)
+
+
+# cut_cell sample
+add_executable(cut_cell samples/cut_cell.cpp ${SRC_FILES})
+target_include_directories(cut_cell PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(cut_cell gradientspace_core)
+target_link_libraries(cut_cell gradientspace_io)
+target_link_libraries(cut_cell gradientspace_grid)
+
+
 # from https://stackoverflow.com/questions/14089284/copy-all-dlls-that-an-executable-links-to-to-the-executable-directory
 # this copies all the dependent DLLs to the folder the exe was generaed in
 # however it doesn't copy PDBs...

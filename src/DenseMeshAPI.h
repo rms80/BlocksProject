@@ -48,6 +48,8 @@ public:
 	int AppendUV(const Vector2f& UV) override;
 	void SetTriangleUVs(int TriangleID, const Index3i& TriUVIndices) override;
 
+	void Reset() { ResetMesh(); }
+
 	// Helpers
 	bool HasColors() const { return !Colors.empty(); }
 	bool HasNormals() const { return !Normals.empty(); }

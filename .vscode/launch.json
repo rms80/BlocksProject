@@ -16,6 +16,15 @@
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "CMake Build"
+        },
+        {
+            "name": "Build & Run enumerate_cells",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/enumerate_cells",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "CMake Build"
         }
     ]
 }
