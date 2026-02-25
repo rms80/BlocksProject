@@ -1,5 +1,6 @@
 #include <array>
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <type_traits>
@@ -11,6 +12,7 @@
 #include "ModelGrid/ModelGridMesher.h"
 #include "ModelGrid/ModelGridMeshCache.h"
 #include "ModelGrid/ModelGridCell.h"
+#include "ModelGrid/ModelGridCell_Extended.h"
 #include "Math/GSTransformList.h"
 
 #include "src/DenseMeshAPI.h"
@@ -22,6 +24,9 @@
 #include "MeshIO/OBJFormatData.h"
 #include "src/BoxGenerator.h"
 #include "src/SphereGenerator.h"
+#include "src/ConvexHull.h"
+#include "Core/gs_serializer.h"
+#include "ModelGrid/ModelGridSerializer.h"
 
 // 16x16x16 inside/outside bitmap (4096 bits = 64 int64s)
 // Grid dimension matches ModelGridCellData_StandardRST::MaxDimension+1
@@ -155,6 +160,48 @@ GS::DenseMesh GenerateCellMesh(
     return Builder.ToDenseMesh();
 }
 
+template<>
+GS::DenseMesh GenerateCellMesh<GS::MGCell_VariableCutCorner>(
+    const GS::Vector3d& CellDims,
+    const GS::MGCell_VariableCutCorner& Cell)
+{
+    GS::ModelGridMesher Mesher;
+    Mesher.Initialize(CellDims);
+    GS::DenseMeshBuilder Builder;
+
+    GS::ModelGridCellData_StandardRST BaseParams;
+    BaseParams.Params.Fields = Cell.Params.Fields;
+    GS::TransformListd Transforms;
+    GS::GetUnitCellTransform(BaseParams, CellDims, Transforms);
+
+    GS::AxisBox3d CellBounds(GS::Vector3d::Zero(), CellDims);
+    GS::ModelGridMesher::CellMaterials Materials;
+    Mesher.AppendVariableCutCorner(CellBounds, Materials, Builder, Transforms,
+        Cell.Params.ParamA, Cell.Params.ParamB, Cell.Params.ParamC);
+    return Builder.ToDenseMesh();
+}
+
+template<>
+GS::DenseMesh GenerateCellMesh<GS::MGCell_VariableCutEdge>(
+    const GS::Vector3d& CellDims,
+    const GS::MGCell_VariableCutEdge& Cell)
+{
+    GS::ModelGridMesher Mesher;
+    Mesher.Initialize(CellDims);
+    GS::DenseMeshBuilder Builder;
+
+    GS::ModelGridCellData_StandardRST BaseParams;
+    BaseParams.Params.Fields = Cell.Params.Fields;
+    GS::TransformListd Transforms;
+    GS::GetUnitCellTransform(BaseParams, CellDims, Transforms);
+
+    GS::AxisBox3d CellBounds(GS::Vector3d::Zero(), CellDims);
+    GS::ModelGridMesher::CellMaterials Materials;
+    Mesher.AppendVariableCutEdge(CellBounds, Materials, Builder, Transforms,
+        Cell.Params.ParamA, Cell.Params.ParamB);
+    return Builder.ToDenseMesh();
+}
+
 
 struct CellMatchResult
 {
@@ -172,9 +219,12 @@ struct PrecomputedCell
 };
 
 
+
+
 std::vector<PrecomputedCell> PrecomputeCellTable(const GS::Vector3d& CellDims)
 {
     GS::AxisBox3d LocalBounds(GS::Vector3d::Zero(), CellDims);
+    GS::ConvexHull<10> Hull;
     std::vector<PrecomputedCell> Table;
 
     // Empty cell
@@ -194,8 +244,9 @@ std::vector<PrecomputedCell> PrecomputeCellTable(const GS::Vector3d& CellDims)
     }
 
     //const unsigned int TryDimensionVals[] = { 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
-    const unsigned int TryDimensionVals[] = { 3, 5, 7, 9, 11, 13, 15 };
+    //const unsigned int TryDimensionVals[] = { 3, 5, 7, 9, 11, 13, 15 };
     //const unsigned int TryDimensionVals[] = { 1, 2, 3, 4, 5, 7, 9, 11, 13, 15 };
+    const unsigned int TryDimensionVals[] = { 1, 3, 6, 9, 12, 15 };
 
 
     std::set<BitGrid> SeenBitGrids;
@@ -215,8 +266,9 @@ std::vector<PrecomputedCell> PrecomputeCellTable(const GS::Vector3d& CellDims)
                             TypedCell.Params.DimensionY = DimY;
                             TypedCell.Params.DimensionZ = DimZ;
                             GS::DenseMesh Mesh = GenerateCellMesh<CellType>(CellDims, TypedCell);
+                            Hull.BuildFromMesh(Mesh);
                             auto BG = SampleInsideBitGrid(LocalBounds,
-                                [&](const GS::Vector3d& P) { return GS::WindingNumber(Mesh, P) < -0.5; });
+                                [&](const GS::Vector3d& P) { return Hull.IsInside(P); });
                             if (!SeenBitGrids.insert(BG).second) {
                                 DuplicateCount++;
                                 continue;
@@ -230,32 +282,271 @@ std::vector<PrecomputedCell> PrecomputeCellTable(const GS::Vector3d& CellDims)
 
     AddType(GS::MGCell_Slab{});
     AddType(GS::MGCell_Ramp{});
-    //AddType(GS::MGCell_Corner{});
+    AddType(GS::MGCell_Corner{});
     //AddType(GS::MGCell_Pyramid{});
     //AddType(GS::MGCell_Peak{});
     //AddType(GS::MGCell_Cylinder{});
     //AddType(GS::MGCell_CutCorner{});
+
+    //const unsigned int TryParamDimensionVals[] = { 3, 7, 11, 15 };
+    const unsigned int TryParamDimensionVals[] = { 7, 15 };
+    const unsigned int TryParamVals[] = { 1, 3, 6, 9, 12, 15 };
+    constexpr size_t NumParamVals = std::size(TryParamVals);
+
+    // AddVariableType: like AddType but also varies ParamA..ParamD from TryParamVals.
+    // NumParams (1-4) controls how many of the extended params are varied;
+    // the rest stay at their default value.
+    auto AddVariableType = [&](auto CellTypeTag, int NumParams) {
+        using CellType = decltype(CellTypeTag);
+        const unsigned int* pRanges[4];
+        size_t nRanges[4];
+        CellType Defaults = CellType::GetDefaultCellParams();
+        const unsigned int DefaultA[] = { (unsigned int)Defaults.Params.ParamA };
+        const unsigned int DefaultB[] = { (unsigned int)Defaults.Params.ParamB };
+        const unsigned int DefaultC[] = { (unsigned int)Defaults.Params.ParamC };
+        const unsigned int DefaultD[] = { (unsigned int)Defaults.Params.ParamD };
+        const unsigned int* DefaultVals[] = { DefaultA, DefaultB, DefaultC, DefaultD };
+        for (int i = 0; i < 4; ++i) {
+            if (i < NumParams) { pRanges[i] = TryParamVals; nRanges[i] = NumParamVals; }
+            else               { pRanges[i] = DefaultVals[i]; nRanges[i] = 1; }
+        }
+        for (unsigned int Dir = 0; Dir < 6; ++Dir)
+            for (unsigned int Rot = 0; Rot < 4; ++Rot)
+                for (unsigned int DimX : TryParamDimensionVals)
+                    for (unsigned int DimY : TryParamDimensionVals)
+                        for (unsigned int DimZ : TryParamDimensionVals)
+                            for (size_t iA = 0; iA < nRanges[0]; ++iA)
+                                for (size_t iB = 0; iB < nRanges[1]; ++iB)
+                                    for (size_t iC = 0; iC < nRanges[2]; ++iC)
+                                        for (size_t iD = 0; iD < nRanges[3]; ++iD) {
+                                            CellType TypedCell = CellType::GetDefaultCellParams();
+                                            TypedCell.Params.AxisDirection = Dir;
+                                            TypedCell.Params.AxisRotation = Rot;
+                                            TypedCell.Params.DimensionX = DimX;
+                                            TypedCell.Params.DimensionY = DimY;
+                                            TypedCell.Params.DimensionZ = DimZ;
+                                            TypedCell.Params.ParamA = pRanges[0][iA];
+                                            TypedCell.Params.ParamB = pRanges[1][iB];
+                                            TypedCell.Params.ParamC = pRanges[2][iC];
+                                            TypedCell.Params.ParamD = pRanges[3][iD];
+                                            GS::DenseMesh Mesh = GenerateCellMesh<CellType>(CellDims, TypedCell);
+                                            auto BG = SampleInsideBitGrid(LocalBounds,
+                                                [&](const GS::Vector3d& P) { return GS::WindingNumber(Mesh, P) < -0.5; });
+                                            if (!SeenBitGrids.insert(BG).second) {
+                                                DuplicateCount++;
+                                                continue;
+                                            }
+                                            PrecomputedCell Entry;
+                                            Entry.BG = BG;
+                                            GS::UpdateGridCellFromSubCell(Entry.Cell, TypedCell);
+                                            Table.push_back(Entry);
+                                        }
+    };
+
+    AddVariableType(GS::MGCell_VariableCutCorner{}, 3);
+    AddVariableType(GS::MGCell_VariableCutEdge{}, 2);
 
     std::cout << "  Filtered " << DuplicateCount << " duplicate BitGrids" << std::endl;
     return Table;
 }
 
 
-CellMatchResult FindBestCellMatch_Precomputed(
+void FindBestCellMatches_Precomputed(
     const BitGrid& Target,
-    const std::vector<PrecomputedCell>& Table)
+    const std::vector<PrecomputedCell>& Table,
+    int N,
+    std::vector<CellMatchResult>& Results)
 {
-    CellMatchResult Best;
+    Results.clear();
+    Results.reserve(N);
+
+    int MinKept = 0;  // worst MatchingBits currently in Results
 
     for (const auto& Entry : Table) {
         int Matching = Entry.BG.CountMatchingBits(Target);
-        if (Matching > Best.MatchingBits) {
-            Best.Cell = Entry.Cell;
-            Best.MatchingBits = Matching;
-            Best.DifferentBits = BitGridNumBits - Matching;
+        if ((int)Results.size() < N || Matching > MinKept) {
+            CellMatchResult R;
+            R.Cell = Entry.Cell;
+            R.MatchingBits = Matching;
+            R.DifferentBits = BitGridNumBits - Matching;
+
+            // Insert in sorted order (best first)
+            auto it = Results.begin();
+            while (it != Results.end() && it->MatchingBits >= Matching)
+                ++it;
+            Results.insert(it, R);
+
+            if ((int)Results.size() > N)
+                Results.resize(N);
+
+            MinKept = Results.back().MatchingBits;
+
+            if (Results[0].MatchingBits == BitGridNumBits && (int)Results.size() >= N)
+                return;
         }
-        if (Best.MatchingBits == BitGridNumBits)
-            return Best;
+    }
+}
+
+
+// Local parameter-space refinement: for each of the N candidates, try nearby parameter
+// values (DimensionX/Y/Z +/-1, extra params +/-1) and return the best overall match.
+// Uses ConvexHull plane test instead of winding number for speed.
+CellMatchResult RefineMatchLocally(
+    const BitGrid& Target,
+    const GS::Vector3d& CellDims,
+    const std::vector<CellMatchResult>& Candidates)
+{
+    CellMatchResult Best;
+    if (Candidates.empty())
+        return Best;
+
+    Best = Candidates[0];
+
+    // If the best precomputed match is already >98%, just use it
+    constexpr int HighMatchThreshold = (int)(BitGridNumBits * 0.98);
+    if (Best.MatchingBits > HighMatchThreshold)
+        return Best;
+
+    // Early-out threshold: skip candidate if >15% worse than current best
+    constexpr int EarlyOutGap = (int)(BitGridNumBits * 0.15);
+
+    GS::AxisBox3d LocalBounds(GS::Vector3d::Zero(), CellDims);
+    GS::ConvexHull<10> Hull;
+
+    auto TryCell = [&](const GS::DenseMesh& Mesh) {
+        Hull.BuildFromMesh(Mesh);
+        auto BG = SampleInsideBitGrid(LocalBounds,
+            [&](const GS::Vector3d& P) { return Hull.IsInside(P); });
+        return BG.CountMatchingBits(Target);
+    };
+
+    auto ClampU = [](int v, int lo, int hi) -> unsigned int {
+        return (unsigned int)std::max(lo, std::min(v, hi));
+    };
+
+    for (size_t ci = 0; ci < Candidates.size(); ++ci)
+    {
+        const auto& Candidate = Candidates[ci];
+        GS::EModelGridCellType CellType = Candidate.Cell.CellType;
+
+        // Skip empty/solid cells - no parameters to refine
+        if (CellType == GS::EModelGridCellType::Empty || CellType == GS::EModelGridCellType::Filled)
+            continue;
+
+        // If this candidate is more than 15% worse than our current best, stop
+        if (ci > 0 && Candidate.MatchingBits < Best.MatchingBits - EarlyOutGap)
+            break;
+
+        // Extract base parameters from the candidate
+        GS::ModelGridCellData_StandardRST BaseRST;
+        GS::InitializeSubCellFromGridCell(Candidate.Cell, BaseRST);
+        int BaseDimX = (int)BaseRST.Params.DimensionX;
+        int BaseDimY = (int)BaseRST.Params.DimensionY;
+        int BaseDimZ = (int)BaseRST.Params.DimensionZ;
+
+        // Determine extra params for variable types
+        bool bIsVariableCutCorner = (CellType == GS::EModelGridCellType::VariableCutCorner_Parametric);
+        bool bIsVariableCutEdge   = (CellType == GS::EModelGridCellType::VariableCutEdge_Parametric);
+        bool bHasExtParams = bIsVariableCutCorner || bIsVariableCutEdge;
+
+        int BaseParamA = 0, BaseParamB = 0, BaseParamC = 0;
+        if (bHasExtParams) {
+            GS::ModelGridCellData_StandardRST_Ext ExtParams;
+            GS::InitializeSubCellFromGridCell(Candidate.Cell, ExtParams);
+            BaseParamA = (int)ExtParams.Params.ParamA;
+            BaseParamB = (int)ExtParams.Params.ParamB;
+            BaseParamC = (int)ExtParams.Params.ParamC;
+        }
+
+        // Iterate over dimension range +/- 2
+        constexpr int DimRange = 1;
+        constexpr int ParamRange = 1;
+        constexpr int MaxDim = 15;
+        constexpr int MaxParam = 15;
+
+        for (int ddx = -DimRange; ddx <= DimRange; ++ddx)
+        for (int ddy = -DimRange; ddy <= DimRange; ++ddy)
+        for (int ddz = -DimRange; ddz <= DimRange; ++ddz)
+        {
+            unsigned int DX = ClampU(BaseDimX + ddx, 0, MaxDim);
+            unsigned int DY = ClampU(BaseDimY + ddy, 0, MaxDim);
+            unsigned int DZ = ClampU(BaseDimZ + ddz, 0, MaxDim);
+
+            if (bIsVariableCutCorner)
+            {
+                for (int dpA = -ParamRange; dpA <= ParamRange; ++dpA)
+                for (int dpB = -ParamRange; dpB <= ParamRange; ++dpB)
+                for (int dpC = -ParamRange; dpC <= ParamRange; ++dpC)
+                {
+                    GS::MGCell_VariableCutCorner Cell;
+                    GS::InitializeSubCellFromGridCell(Candidate.Cell, Cell);
+                    Cell.Params.DimensionX = DX;
+                    Cell.Params.DimensionY = DY;
+                    Cell.Params.DimensionZ = DZ;
+                    Cell.Params.ParamA = ClampU(BaseParamA + dpA, 0, MaxParam);
+                    Cell.Params.ParamB = ClampU(BaseParamB + dpB, 0, MaxParam);
+                    Cell.Params.ParamC = ClampU(BaseParamC + dpC, 0, MaxParam);
+                    GS::DenseMesh Mesh = GenerateCellMesh(CellDims, Cell);
+                    int Matching = TryCell(Mesh);
+                    if (Matching > Best.MatchingBits) {
+                        GS::UpdateGridCellFromSubCell(Best.Cell, Cell);
+                        Best.MatchingBits = Matching;
+                        Best.DifferentBits = BitGridNumBits - Matching;
+                    }
+                }
+            }
+            else if (bIsVariableCutEdge)
+            {
+                for (int dpA = -ParamRange; dpA <= ParamRange; ++dpA)
+                for (int dpB = -ParamRange; dpB <= ParamRange; ++dpB)
+                {
+                    GS::MGCell_VariableCutEdge Cell;
+                    GS::InitializeSubCellFromGridCell(Candidate.Cell, Cell);
+                    Cell.Params.DimensionX = DX;
+                    Cell.Params.DimensionY = DY;
+                    Cell.Params.DimensionZ = DZ;
+                    Cell.Params.ParamA = ClampU(BaseParamA + dpA, 0, MaxParam);
+                    Cell.Params.ParamB = ClampU(BaseParamB + dpB, 0, MaxParam);
+                    GS::DenseMesh Mesh = GenerateCellMesh(CellDims, Cell);
+                    int Matching = TryCell(Mesh);
+                    if (Matching > Best.MatchingBits) {
+                        GS::UpdateGridCellFromSubCell(Best.Cell, Cell);
+                        Best.MatchingBits = Matching;
+                        Best.DifferentBits = BitGridNumBits - Matching;
+                    }
+                }
+            }
+            else
+            {
+                // Standard types: just vary dimensions, dispatch by type
+                auto TryStandardType = [&](auto CellTypeTag) {
+                    using CT = decltype(CellTypeTag);
+                    CT Cell;
+                    GS::InitializeSubCellFromGridCell(Candidate.Cell, Cell);
+                    Cell.Params.DimensionX = DX;
+                    Cell.Params.DimensionY = DY;
+                    Cell.Params.DimensionZ = DZ;
+                    GS::DenseMesh Mesh = GenerateCellMesh<CT>(CellDims, Cell);
+                    int Matching = TryCell(Mesh);
+                    if (Matching > Best.MatchingBits) {
+                        GS::UpdateGridCellFromSubCell(Best.Cell, Cell);
+                        Best.MatchingBits = Matching;
+                        Best.DifferentBits = BitGridNumBits - Matching;
+                    }
+                };
+
+                switch (CellType) {
+                    case GS::EModelGridCellType::Slab_Parametric:      TryStandardType(GS::MGCell_Slab{}); break;
+                    case GS::EModelGridCellType::Ramp_Parametric:      TryStandardType(GS::MGCell_Ramp{}); break;
+                    case GS::EModelGridCellType::Corner_Parametric:    TryStandardType(GS::MGCell_Corner{}); break;
+                    case GS::EModelGridCellType::Pyramid_Parametric:   TryStandardType(GS::MGCell_Pyramid{}); break;
+                    case GS::EModelGridCellType::Peak_Parametric:      TryStandardType(GS::MGCell_Peak{}); break;
+                    case GS::EModelGridCellType::Cylinder_Parametric:  TryStandardType(GS::MGCell_Cylinder{}); break;
+                    case GS::EModelGridCellType::CutCorner_Parametric: TryStandardType(GS::MGCell_CutCorner{}); break;
+                    default: break;
+                }
+            }
+        }
     }
 
     return Best;
@@ -268,23 +559,23 @@ int main()
 
     GS::DenseMesh SourceMesh;
 
-    //std::string InputFilePath = "../input/stanford-bunny.obj";
-    std::string InputFilePath = "../input/Bauhaus_main.obj";
+    std::string InputFilePath = "../input/stanford-bunny.obj";
+    //std::string InputFilePath = "../input/Bauhaus_main.obj";
 
     // Load source mesh
-    // GS::OBJFormatData OBJData;
-    // if (!GS::OBJReader::ReadOBJ(InputFilePath, OBJData)) {
-    //     std::cerr << "Failed to read " << InputFilePath << std::endl;
-    //     return 1;
-    // }
-    // GS::OBJFormatDataToDenseMesh(OBJData, SourceMesh);
+    GS::OBJFormatData OBJData;
+    if (!GS::OBJReader::ReadOBJ(InputFilePath, OBJData)) {
+        std::cerr << "Failed to read " << InputFilePath << std::endl;
+        return 1;
+    }
+    GS::OBJFormatDataToDenseMesh(OBJData, SourceMesh);
 
-    GS::DenseMeshBuilder Builder;
-    GS::BoxGenerator BoxGen;
-    BoxGen.Center = GS::Vector3d(2.0, 5.0, 7.0);
-    BoxGen.Dimensions = GS::Vector3d(100.0, 100.0, 100.0);
-    BoxGen.Generate(Builder);
-    SourceMesh = Builder.ToDenseMesh();
+    // GS::DenseMeshBuilder Builder;
+    // GS::BoxGenerator BoxGen;
+    // BoxGen.Center = GS::Vector3d(2.0, 5.0, 7.0);
+    // BoxGen.Dimensions = GS::Vector3d(100.0, 100.0, 100.0);
+    // BoxGen.Generate(Builder);
+    // SourceMesh = Builder.ToDenseMesh();
 
     // GS::DenseMeshBuilder Builder;
     // GS::SphereGenerator SphereGen;
@@ -309,6 +600,7 @@ int main()
     GS::ModelGridEditor Editor(Grid);
 
     GS::Vector3d CellDims(CellSize, CellSize, CellSize);
+
     std::cout << "Precomputing cell table..." << std::endl;
     auto CellTable = PrecomputeCellTable(CellDims);
     std::cout << "Precomputed " << CellTable.size() << " cell entries ("
@@ -327,6 +619,7 @@ int main()
     GS::Vector3i MaxCell = Grid.GetCellAtPosition(MeshBounds.Max, bIsInGrid);
 
     constexpr int SkipBitThreshold = 3;
+    std::vector<CellMatchResult> CellMatches;
 
     GS::Vector3i CellCounts = MaxCell - MinCell + GS::Vector3i(1, 1, 1);
     std::cout << "Cell range: " << CellCounts.X << " x " << CellCounts.Y << " x " << CellCounts.Z
@@ -352,18 +645,20 @@ int main()
                 int TargetSetBits = TargetBG.CountSetBits();
 
                 // skip mostly-empty cells
-                if (TargetSetBits < SkipBitThreshold)
-                    continue;
+                // if (TargetSetBits < SkipBitThreshold)
+                //     continue;
 
                 // If all sample points are inside, fill with solid cell
                 GS::ModelGridCell FillCell;
                 if (TargetBG.CountSetBits() == BitGridNumBits) {
                     FillCell = GS::ModelGridCell::SolidCell();
                 } else {
-                    CellMatchResult Match = FindBestCellMatch_Precomputed(
-                        TargetBG, CellTable);
-                    FillCell = Match.Cell;
-                    double FillPct = 100.0 * Match.MatchingBits / BitGridNumBits;
+                    FindBestCellMatches_Precomputed(
+                        TargetBG, CellTable, 3, CellMatches);
+                    CellMatchResult Refined = RefineMatchLocally(
+                        TargetBG, CellDims, CellMatches);
+                    FillCell = Refined.Cell;
+                    double FillPct = 100.0 * Refined.MatchingBits / BitGridNumBits;
                     GS::ModelGridCellData_StandardRST::Parameters CellParams;
                     CellParams.Fields = FillCell.CellData;
                     // std::cout << "  Cell (" << ix << "," << iy << "," << iz
@@ -402,6 +697,26 @@ int main()
     // Write meshes to OBJ
     GS::WriteMeshOBJ("../output/source_as_cells.obj", GridMesh, true);
     GS::WriteMeshOBJ("../output/source_mesh.obj", SourceMesh, true);
+
+    // Write binary grid file
+    {
+        GS::MemorySerializer Serializer;
+        Serializer.BeginWrite();
+        bool bStoreOK = GS::ModelGridSerializer::Serialize(Grid, Serializer);
+        if (bStoreOK)
+        {
+            size_t NumBytes = 0;
+            const uint8_t* Buffer = Serializer.GetBuffer(NumBytes);
+            std::ofstream outFile("../output/source_as_cells.grid", std::ios::binary);
+            outFile.write(reinterpret_cast<const char*>(Buffer), NumBytes);
+            outFile.close();
+            std::cout << "Wrote ../output/source_as_cells.grid (" << NumBytes << " bytes)" << std::endl;
+        }
+        else
+        {
+            std::cout << "Grid serialization failed!" << std::endl;
+        }
+    }
 
     return 0;
 }

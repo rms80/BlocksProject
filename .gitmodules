@@ -7,3 +7,6 @@
 [submodule "submodules/GradientspaceGrid"]
 	path = submodules/GradientspaceGrid
 	url = https://github.com/gradientspace/GradientspaceGrid
+[submodule "viewer/polyscope"]
+	path = viewer/polyscope
+	url = https://github.com/nmwsharp/polyscope

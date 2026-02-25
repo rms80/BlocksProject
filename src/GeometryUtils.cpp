@@ -216,53 +216,36 @@ bool GS::WriteMeshOBJ(const std::string& Path, const DenseMesh& Mesh, bool bReve
 
 bool GS::TestBoxOverlap(const AxisBox3d& Box, FunctionRef<bool(const Vector3d&)> Predicate)
 {
-	Vector3d Mid = (Box.Min + Box.Max) * 0.5;
-
-	// Test 8 corners
-	for (int cz = 0; cz <= 1; ++cz)
-		for (int cy = 0; cy <= 1; ++cy)
-			for (int cx = 0; cx <= 1; ++cx) {
-				Vector3d Corner(
-					cx ? Box.Max.X : Box.Min.X,
-					cy ? Box.Max.Y : Box.Min.Y,
-					cz ? Box.Max.Z : Box.Min.Z);
-				if (Predicate(Corner))
+	// Test points on a 5x5x5 grid inside the box (includes corners, edge/face centers, body center, and intermediate points)
+	for (int zi = 0; zi <= 4; ++zi)
+		for (int yi = 0; yi <= 4; ++yi)
+			for (int xi = 0; xi <= 4; ++xi)
+			{
+				Vector3d Point(
+					Box.Min.X + (Box.Max.X - Box.Min.X) * (xi / 4.0),
+					Box.Min.Y + (Box.Max.Y - Box.Min.Y) * (yi / 4.0),
+					Box.Min.Z + (Box.Max.Z - Box.Min.Z) * (zi / 4.0));
+				if (Predicate(Point))
 					return true;
 			}
 
-	// Test box center
-	if (Predicate(Mid))
-		return true;
-
-	// Test 6 face centers
-	if (Predicate(Vector3d(Box.Min.X, Mid.Y, Mid.Z))) return true;
-	if (Predicate(Vector3d(Box.Max.X, Mid.Y, Mid.Z))) return true;
-	if (Predicate(Vector3d(Mid.X, Box.Min.Y, Mid.Z))) return true;
-	if (Predicate(Vector3d(Mid.X, Box.Max.Y, Mid.Z))) return true;
-	if (Predicate(Vector3d(Mid.X, Mid.Y, Box.Min.Z))) return true;
-	if (Predicate(Vector3d(Mid.X, Mid.Y, Box.Max.Z))) return true;
-
-	// Test 12 edge midpoints (4 per axis)
-	for (int a = 0; a <= 1; ++a)
-		for (int b = 0; b <= 1; ++b) {
-			double ey = a ? Box.Max.Y : Box.Min.Y;
-			double ez = b ? Box.Max.Z : Box.Min.Z;
-			if (Predicate(Vector3d(Mid.X, ey, ez))) return true;
-		}
-	for (int a = 0; a <= 1; ++a)
-		for (int b = 0; b <= 1; ++b) {
-			double ex = a ? Box.Max.X : Box.Min.X;
-			double ez = b ? Box.Max.Z : Box.Min.Z;
-			if (Predicate(Vector3d(ex, Mid.Y, ez))) return true;
-		}
-	for (int a = 0; a <= 1; ++a)
-		for (int b = 0; b <= 1; ++b) {
-			double ex = a ? Box.Max.X : Box.Min.X;
-			double ey = b ? Box.Max.Y : Box.Min.Y;
-			if (Predicate(Vector3d(ex, ey, Mid.Z))) return true;
-		}
-
 	return false;
+}
+
+
+int GS::CountDegenerateTriangles(const DenseMesh& Mesh, double Epsilon)
+{
+	double EpsSq = Epsilon * Epsilon;
+	int Count = 0;
+	for (int i = 0; i < Mesh.GetTriangleCount(); ++i) {
+		const Index3i& Tri = Mesh.GetTriangle(i);
+		Vector3d A = Mesh.GetPosition(Tri.A);
+		Vector3d B = Mesh.GetPosition(Tri.B);
+		Vector3d C = Mesh.GetPosition(Tri.C);
+		if (A.DistanceSquared(B) < EpsSq || B.DistanceSquared(C) < EpsSq || A.DistanceSquared(C) < EpsSq)
+			Count++;
+	}
+	return Count;
 }
 
 

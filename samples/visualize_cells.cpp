@@ -111,12 +111,12 @@ void visualize_dim()
     for (int iz = 0; iz < NumSteps; ++iz) {
         for (int iy = 0; iy < NumSteps; ++iy) {
             for (int ix = 0; ix < NumSteps; ++ix) {
-                GS::MGCell_CutCorner Cell = GS::MGCell_CutCorner::GetDefaultCellParams();
+                GS::MGCell_Corner Cell = GS::MGCell_Corner::GetDefaultCellParams();
                 Cell.Params.DimensionX = DimVals[ix];
                 Cell.Params.DimensionY = DimVals[iy];
                 Cell.Params.DimensionZ = DimVals[iz];
 
-                GS::DenseMesh Mesh = GenerateCellMesh<GS::MGCell_CutCorner>(CellDims, Cell);
+                GS::DenseMesh Mesh = GenerateCellMesh<GS::MGCell_Corner>(CellDims, Cell);
 
                 GS::Vector3d Offset(-ix * Spacing * 3.0, iy * Spacing, -iz * Spacing);
                 AppendMeshWithOffset(AccumBuilder, Mesh, Offset);
@@ -146,14 +146,14 @@ void visualize_orient()
 
     for (unsigned int Rot = 0; Rot < 4; ++Rot) {
         for (unsigned int Dir = 0; Dir < 6; ++Dir) {
-            GS::MGCell_CutCorner Cell = GS::MGCell_CutCorner::GetDefaultCellParams();
+            GS::MGCell_Corner Cell = GS::MGCell_Corner::GetDefaultCellParams();
             Cell.Params.DimensionX = 5;
             Cell.Params.DimensionY = 5;
             Cell.Params.DimensionZ = 9;
             Cell.Params.AxisDirection = Dir;
             Cell.Params.AxisRotation = Rot;
 
-            GS::DenseMesh Mesh = GenerateCellMesh<GS::MGCell_CutCorner>(CellDims, Cell);
+            GS::DenseMesh Mesh = GenerateCellMesh<GS::MGCell_Corner>(CellDims, Cell);
 
             GS::Vector3d Offset(Dir * Spacing, -((double)Rot) * Spacing, 0);
             AppendMeshWithOffset(AccumBuilder, Mesh, Offset);
